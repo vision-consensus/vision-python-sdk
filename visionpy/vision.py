@@ -5,7 +5,7 @@ import json
 from decimal import Decimal
 
 from visionpy import keys
-from visionpy.contract import Contract, ShieldedVRC20, ContractMethod
+from visionpy.contract import Contract, ContractMethod
 from visionpy.keys import PrivateKey
 from visionpy.providers import HTTPProvider
 from visionpy.abi import vision_abi
@@ -831,11 +831,6 @@ class Vision(object):
             client=self,
         )
         return cntr
-
-    def get_contract_as_shielded_vrc20(self, addr: VAddress) -> ShieldedVRC20:
-        """Get a Shielded VRC20 Contract object."""
-        contract = self.get_contract(addr)
-        return ShieldedVRC20(contract)
 
     def trigger_const_smart_contract_function(
         self, owner_address: VAddress, contract_address: VAddress, function_selector: str, parameter: str,
