@@ -7,7 +7,7 @@ import json
 from decimal import Decimal
 
 from visionpy import keys
-from visionpy.async_contract import AsyncContract, ShieldedVRC20, AsyncContractMethod
+from visionpy.async_contract import AsyncContract, AsyncContractMethod
 from visionpy.keys import PrivateKey
 from visionpy.abi import vision_abi
 from visionpy.defaults import conf_for_name
@@ -861,10 +861,6 @@ class AsyncVision(object):
         )
         return cntr
 
-    async def get_contract_as_shielded_vrc20(self, addr: VAddress) -> ShieldedVRC20:
-        """Get a Shielded VRC20 Contract object."""
-        contract = await self.get_contract(addr)
-        return ShieldedVRC20(contract)
 
     async def trigger_const_smart_contract_function(
         self, owner_address: VAddress, contract_address: VAddress, function_selector: str, parameter: str,

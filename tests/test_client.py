@@ -6,11 +6,11 @@ from visionpy.vision import Transaction
 from visionpy.async_vision import AsyncTransaction
 import pytest
 
-# vtest addr and key
-PRIVATE_KEY = PrivateKey(bytes.fromhex("a39ad1e46936f730c411184134365188cfb4497d17352a582e316edfcf9e4710"))
-FROM_ADDR = 'VDGXn73Qgf6V1aGbm8eigoHyPJRJpALN9F'
-TO_ADDR = 'VZDLsQX25r6og58gfRcxSANYfLRmDV3gE3'
-VRC20_CONTRACT_ADDR = 'VYKDHeQfG38C62Xo8tHLrGWiw5o9hL3QEK'
+# vpioneer addr and key
+PRIVATE_KEY = PrivateKey(bytes.fromhex("a318cb4f1f3b87d604163e4a854312555d57158d78aef26797482d3038c4018b"))
+FROM_ADDR = 'VSfD1o6FPChqdqLgwJaztjckyyo2GSM1KP'
+TO_ADDR = 'VTCYvEK2ZuWvZ5LXqrLpU2GoRkFeJ1NrD2'      # private_key: eed06aebdef88683ff5678b353d1281bb2b730113c9283f7ea96600a0d2c104f
+VRC20_CONTRACT_ADDR = 'VE2sE7iXbSyESQKMPLav5Q84EXEHZCnaRX'
 
 
 def test_client_keygen():
@@ -27,7 +27,7 @@ def test_async_client_keygen():
 
 
 def test_client():
-    client = Vision(network='vtest')
+    client = Vision(network='vpioneer')
 
     print(client)
 
@@ -45,7 +45,7 @@ def test_client():
 
 
 def test_client_sign_offline():
-    client = Vision(network='vtest')
+    client = Vision(network='vpioneer')
     tx = client.vs.transfer(FROM_ADDR, TO_ADDR, 1).memo("test memo").fee_limit(100_000_000).build()
     tx_j = tx.to_json()
     # offline
@@ -59,7 +59,7 @@ def test_client_sign_offline():
 
 @pytest.mark.asyncio
 async def test_async_client_sign_offline():
-    async with AsyncVision(network='vtest') as client:
+    async with AsyncVision(network='vpioneer') as client:
         tx = await client.vs.transfer(FROM_ADDR, TO_ADDR, 1).memo("test memo").fee_limit(100_000_000).build()
         tx_j = tx.to_json()
         # offline
@@ -72,7 +72,7 @@ async def test_async_client_sign_offline():
 
 
 def test_client_update_tx():
-    client = Vision(network='vtest')
+    client = Vision(network='vpioneer')
     tx: Transaction = client.vs.transfer(FROM_ADDR, TO_ADDR, 1).memo("test memo").fee_limit(100_000_000).build()
     tx.sign(PRIVATE_KEY)
     tx.broadcast()
@@ -88,7 +88,7 @@ def test_client_update_tx():
 
 @pytest.mark.asyncio
 async def test_async_client():
-    async with AsyncVision(network='vtest') as client:
+    async with AsyncVision(network='vpioneer') as client:
         print(client)
 
         txb = (
@@ -108,12 +108,12 @@ async def test_async_client():
 async def test_async_manual_client():
     from httpx import AsyncClient, Timeout, Limits
     from visionpy.providers.async_http import AsyncHTTPProvider
-    from visionpy.defaults import CONF_VTEST
+    from visionpy.defaults import CONF_VIPONEER
 
     _http_client = AsyncClient(
         limits=Limits(max_connections=100, max_keepalive_connections=20), timeout=Timeout(timeout=10, connect=5, read=5)
     )
-    provider = AsyncHTTPProvider(CONF_VTEST, client=_http_client)
+    provider = AsyncHTTPProvider(CONF_VIPONEER, client=_http_client)
     client = AsyncVision(provider=provider)
 
     txb = (
@@ -132,7 +132,7 @@ async def test_async_manual_client():
 
 
 def test_client_get_contract():
-    client = Vision(network='vtest')
+    client = Vision(network='vpioneer')
     """
     txn = (
         client.vs.asset_issue(
@@ -166,20 +166,19 @@ def test_client_get_contract():
 
 @pytest.mark.asyncio
 async def test_async_client_get_contract():
-    async with AsyncVision(network='vtest') as client:
+    async with AsyncVision(network='vpioneer') as client:
         cntr = await client.get_contract(VRC20_CONTRACT_ADDR)
         print(cntr)
 
         print(cntr.abi)
-        # print(client.get_contract("TTjacDH5PL8hpWirqU7HQQNZDyF723PuCg"))
 
         print(await cntr.functions.name())
 
 
 def test_client_transfer_vrc10():
-    client = Vision(network='vtest')
+    client = Vision(network='vpioneer')
 
-    txn = (
+    txn_ret = (
         client.vs.asset_transfer(
             FROM_ADDR, TO_ADDR, 1000, token_id=1000007
         )
@@ -191,12 +190,12 @@ def test_client_transfer_vrc10():
         .broadcast()
     )
 
-    print(txn)
+    print(txn_ret)
 
 
 @pytest.mark.asyncio
 async def test_client_transfer_vrc10():
-    async with AsyncVision(network='vtest') as client:
+    async with AsyncVision(network='vpioneer') as client:
         txb = (
             client.vs.asset_transfer(
                 FROM_ADDR, TO_ADDR, 1000, token_id=1000007
@@ -215,12 +214,12 @@ def test_client_timeout():
     from httpx import TimeoutException
 
     # must be a timeout
-    client = Vision(network='vtest', conf={'timeout': 0.3})
+    client = Vision(network='vpioneer', conf={'timeout': 0.3})
 
     with pytest.raises(TimeoutException):
         client.get_block()
 
-    client = Vision(network='vtest', conf={'timeout': 10})
+    client = Vision(network='vpioneer', conf={'timeout': 10})
     client.get_block()
 
 
@@ -229,9 +228,9 @@ async def test_async_client_timeout():
     from httpx import TimeoutException
 
     # must be a timeout
-    async with AsyncVision(network='vtest', conf={'timeout': 0.0001}) as client:
+    async with AsyncVision(network='vpioneer', conf={'timeout': 0.0001}) as client:
         with pytest.raises(TimeoutException):
             await client.get_block()
 
-    async with AsyncVision(network='vtest', conf={'timeout': 10}) as client:
+    async with AsyncVision(network='vpioneer', conf={'timeout': 10}) as client:
         await client.get_block()

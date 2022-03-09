@@ -1,17 +1,17 @@
 CONF_MAINNET = {
-    "fullnode": "https://visionexplorer.bkbos.space",
-    "event": "https://visionexplorer.bkbos.space",
+    "fullnode": "https://infragrid.v.network",
+    "event": "https://infragrid.v.network",
 }
 
-# Maintained by the official team
-CONF_VTEST = {
-    "fullnode": "https://vtest.infragrid.v.network",
-    "event": "https://vtest.infragrid.v.network",
+# testNet Maintained by the official team
+CONF_VIPONEER = {
+    "fullnode": "https://vpioneer.infragrid.v.network/",
+    "event": "https://vpioneer.infragrid.v.network/",
 }
 
 ALL = {
     "mainnet": CONF_MAINNET,
-    "vtest": CONF_VTEST,
+    "vpioneer": CONF_VIPONEER,
 }
 
 

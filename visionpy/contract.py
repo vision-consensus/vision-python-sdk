@@ -1,10 +1,12 @@
-from typing import Union, Optional, Any, Tuple
+import itertools
 from Crypto.Hash import keccak
+from typing import Union, Optional, Any, List
 
-from visionpy.exceptions import DoubleSpending
-from visionpy.abi import vs_abi
-from visionpy import keys
+from eth_utils import decode_hex
+
 import visionpy
+from visionpy import keys
+from visionpy.abi import vs_abi
 
 
 def keccak256(data: bytes) -> bytes:
@@ -30,7 +32,7 @@ class Contract(object):
         *,
         bytecode: Union[str, bytes] = '',
         name: str = None,
-        abi: Optional[dict] = None,
+        abi: Optional[List[dict]] = None,
         user_resource_percent: int = 100,
         origin_entropy_limit: int = 1,
         origin_address: str = None,
@@ -61,6 +63,7 @@ class Contract(object):
         """Current transaction owner's address, to call or trigger contract"""
 
         self._functions = None
+        self._events = None
         self._client = client
 
     def __str__(self):
@@ -157,6 +160,85 @@ class Contract(object):
                 return ContractConstructor(method_abi, self)
 
         raise NameError("Contract has no constructor")
+
+    @property
+    def events(self) -> "ContractEvents":
+        """The :class:`~ContractEvents` object, wraps all contract events."""
+        if self._events is None:
+            if self.abi:
+                self._events = ContractEvents(self)
+                return self._events
+            raise ValueError("can not call a contract without ABI")
+        return self._events
+
+
+class ContractEvents(object):
+    def __init__(self, contract):
+        self._contract = contract
+
+    def __getitem__(self, event_name: str):
+        for _abi in self._contract.abi:
+            if _abi["type"].lower() == "event" and _abi["name"] == event_name:
+                return ContractEvent(_abi, self._contract, event_name)
+
+        raise KeyError("contract has no event named '{}'".format(event_name))
+
+    def __getattr__(self, event: str):
+        """Get the actual contract event object."""
+        try:
+            return self[event]
+        except KeyError:
+            raise AttributeError("contract has no method named '{}'".format(event))
+
+    def __dir__(self):
+        return [event["name"] for event in self._contract.abi if event["type"].lower() == "event"]
+
+    def __iter__(self):
+        yield from [self[event] for event in dir(self)]
+
+
+class ContractEvent(object):
+    def __init__(self, abi: dict, contract: "Contract", event_name: str):
+        self._abi = abi
+        self._contract = contract
+        self._event_name = event_name
+
+    def process_receipt(self, txn_receipt: dict):
+        return self.parse_logs(txn_receipt['log'])
+
+    def parse_logs(self, logs: List[dict]):
+        for log in logs:
+            yield self.get_event_data(log)
+
+    def get_event_data(self, log: dict):
+        data_types, data_names, topic_types, topic_names = [], [], [], []
+        for arg in self._abi['inputs']:
+            if arg.get('indexed', False) is False:
+                data_types.append(arg['type'])
+                data_names.append(arg['name'])
+            else:
+                topic_types.append(arg['type'])
+                topic_names.append(arg['name'])
+
+        topics = log['topics'][1:]
+        decoded_topic_data = [
+            vs_abi.decode_single(topic_type, decode_hex(topic_data))
+            for topic_type, topic_data
+            in zip(topic_types, topics)
+        ]
+
+        data = decode_hex(log['data'])
+        decoded_data = vs_abi.decode_abi(data_types, data)
+
+        event_args = dict(itertools.chain(
+            zip(topic_names, decoded_topic_data),
+            zip(data_names, decoded_data),
+        ))
+        return {
+            'args': event_args,
+            'event': self._event_name,
+            'address': log['address'],
+        }
 
 
 class ContractFunctions(object):
@@ -284,6 +366,11 @@ class ContractMethod(object):
 
     def __call__(self, *args, **kwargs) -> "visionpy.vision.TransactionBuilder":
         """Call the contract method."""
+        parameter = self._prepare_parameter(*args, **kwargs)
+        return self._trigger_contract(parameter)
+
+    def _prepare_parameter(self, *args, **kwargs) -> "visionpy.vision.TransactionBuilder":
+        """Prepare parameter."""
         parameter = ""
 
         if args and kwargs:
@@ -308,7 +395,9 @@ class ContractMethod(object):
             parameter = vs_abi.encode_single(self.input_type, args).hex()
         else:
             raise TypeError("wrong number of arguments, require {}".format(len(self.inputs)))
+        return parameter
 
+    def _trigger_contract(self, parameter):
         if self._abi.get("stateMutability", None).lower() in ["view", "pure"]:
             # const call, contract ret
             ret = self._client.trigger_const_smart_contract_function(
@@ -374,268 +463,11 @@ class ContractMethod(object):
             ret += " returns ({})".format(", ".join(arg["type"] + " " + arg.get("name", "") for arg in self.outputs))
         return ret
 
-    def as_shielded_vrc20(self, vrc20_addr: str) -> "ShieldedVRC20":
-        return ShieldedVRC20(self, vrc20_addr)
 
-
-class ShieldedVRC20(object):
-    """Shielded VRC20 Wrapper."""
-
-    def __init__(self, contract: Contract):
-        self.shielded = contract
-        """Thi shielded VRC20 contract."""
-
-        self._client = contract._client
-
-        # lazy properties
-        self._vrc20 = None
-        self._scale_factor = None
-
-    @property
-    def vrc20(self) -> Contract:
-        """The corresponding VRC20 contract."""
-        if self._vrc20 is None:
-            vrc20_address = "46" + self.shielded._bytecode[-52:-32].hex()
-            self._vrc20 = self._client.get_contract(vrc20_address)
-        return self._vrc20
-
-    @property
-    def scale_factor(self) -> int:
-        """Scaling factor of the shielded contract."""
-        if self._scale_factor is None:
-            self._scale_factor = self.shielded.functions.scalingFactor()
-        return self._scale_factor
-
-    def get_rcm(self) -> str:
-        return self._client.provider.make_request("wallet/gevrcm")["value"]
-
-    def mint(self, taddr: str, zaddr: str, amount: int, memo: str = "") -> "visionpy.vision.TransactionBuilder":
-        """Mint, transfer from T-address to z-address."""
-        rcm = self.get_rcm()
-        payload = {
-            "from_amount": str(amount),
-            "shielded_receives": {
-                "note": {
-                    "value": amount // self.scale_factor,
-                    "payment_address": zaddr,
-                    "rcm": rcm,
-                    "memo": memo.encode().hex(),
-                }
-            },
-            "shielded_VRC20_contract_address": keys.to_hex_address(self.shielded.contract_address),
-        }
-
-        ret = self._client.provider.make_request("wallet/createshieldedcontractparameters", payload)
-        self._client._handle_api_error(ret)
-        parameter = ret["trigger_contract_input"]
-        function_signature = self.shielded.functions.mint.function_signature_hash
-        return self._client.vs._build_transaction(
-            "TriggerSmartContract",
-            {
-                "owner_address": keys.to_hex_address(taddr),
-                "contract_address": keys.to_hex_address(self.shielded.contract_address),
-                "data": function_signature + parameter,
-            },
-            method=self.shielded.functions.mint,
-        )
-
-    def transfer(
-        self, zkey: dict, notes: Union[list, dict], *to: Union[Tuple[str, int], Tuple[str, int, str]],
-    ) -> "visionpy.vision.TransactionBuilder":
-        """Transfer from z-address to z-address."""
-        if isinstance(notes, (dict,)):
-            notes = [notes]
-
-        assert 1 <= len(notes) <= 2
-
-        spends = []
-        spend_amount = 0
-        for note in notes:
-            if note.get("is_spent", False):
-                raise DoubleSpending
-            alpha = self.get_rcm()
-            root, path = self.get_path(note.get("position", 0))
-            spends.append(
-                {"note": note["note"], "alpha": alpha, "root": root, "path": path, "pos": note.get("position", 0)}
-            )
-            spend_amount += note["note"]["value"]
-
-        receives = []
-        receive_amount = 0
-        for recv in to:
-            addr = recv[0]
-            amount = recv[1]
-            receive_amount += amount
-            if len(recv) == 3:
-                memo = recv[2]
-            else:
-                memo = ""
-
-            rcm = self.get_rcm()
-
-            receives.append(
-                {"note": {"value": amount, "payment_address": addr, "rcm": rcm, "memo": memo.encode().hex()}}
-            )
-
-        if spend_amount != receive_amount:
-            raise ValueError("spend amount is not equal to receive amount")
-
-        payload = {
-            "ask": zkey["ask"],
-            "nsk": zkey["nsk"],
-            "ovk": zkey["ovk"],
-            "shielded_spends": spends,
-            "shielded_receives": receives,
-            "shielded_VRC20_contract_address": keys.to_hex_address(self.shielded.contract_address),
-        }
-        ret = self._client.provider.make_request("wallet/createshieldedcontractparameters", payload)
-        self._client._handle_api_error(ret)
-        parameter = ret["trigger_contract_input"]
-        function_signature = self.shielded.functions.transfer.function_signature_hash
-        return self._client.vs._build_transaction(
-            "TriggerSmartContract",
-            {
-                "owner_address": "0000000000000000000000000000000000000000",
-                "contract_address": keys.to_hex_address(self.shielded.contract_address),
-                "data": function_signature + parameter,
-            },
-            method=self.shielded.functions.transfer,
-        )
-
-    def burn(
-        self, zkey: dict, note: dict, *to: Union[Tuple[str, int], Tuple[str, int, str]]
-    ) -> "visionpy.vision.TransactionBuilder":
-        """Burn, transfer from z-address to T-address."""
-        spends = []
-        alpha = self.get_rcm()
-        root, path = self.get_path(note.get("position", 0))
-        if note.get("is_spent", False):
-            raise DoubleSpending
-        spends.append(
-            {"note": note["note"], "alpha": alpha, "root": root, "path": path, "pos": note.get("position", 0)}
-        )
-        change_amount = 0
-        receives = []
-        to_addr = None
-        to_amount = 0
-        to_memo = ''
-        if not to:
-            raise ValueError('burn must have a output')
-        for receive in to:
-            addr = receive[0]
-            amount = receive[1]
-            if len(receive) == 3:
-                memo = receive[2]
-            else:
-                memo = ""
-
-            if addr.startswith('zvision1'):
-                change_amount += amount
-                rcm = self.get_rcm()
-                receives = [
-                    {"note": {"value": amount, "payment_address": addr, "rcm": rcm, "memo": memo.encode().hex()}}
-                ]
-            else:
-                # assume T-address
-                to_addr = addr
-                to_amount = amount
-                to_memo = memo
-
-        if note["note"]["value"] * self.scale_factor - change_amount * self.scale_factor != to_amount:
-            raise ValueError("Balance amount is wrong")
-
-        payload = {
-            "ask": zkey["ask"],
-            "nsk": zkey["nsk"],
-            "ovk": zkey["ovk"],
-            "shielded_spends": spends,
-            "shielded_receives": receives,
-            "to_amount": str(to_amount),
-            "transparent_to_address": keys.to_hex_address(to_addr),
-            "shielded_VRC20_contract_address": keys.to_hex_address(self.shielded.contract_address),
-        }
-
-        ret = self._client.provider.make_request("wallet/createshieldedcontractparameters", payload)
-        self._client._handle_api_error(ret)
-        parameter = ret["trigger_contract_input"]
-        function_signature = self.shielded.functions.burn.function_signature_hash
-        txn = self._client.vs._build_transaction(
-            "TriggerSmartContract",
-            {
-                "owner_address": "460000000000000000000000000000000000000000",
-                "contract_address": keys.to_hex_address(self.shielded.contract_address),
-                "data": function_signature + parameter,
-            },
-            method=self.shielded.functions.burn,
-        )
-        if to_memo:
-            txn = txn.memo(to_memo)
-        return txn
-
-    def _fix_notes(self, notes: list) -> list:
-        for note in notes:
-            if "position" not in note:
-                note["position"] = 0
-            if "is_spent" not in note:
-                note["is_spent"] = False
-            # if "memo" in note["note"]:
-            #     note["note"]["memo"] = bytes.fromhex(note["note"]["memo"]).decode("utf8", 'ignore')
-        return notes
-
-    # use zkey pair from wallet/getnewshieldedaddress
-    def scan_incoming_notes(self, zkey: dict, start_block_number: int, end_block_number: int = None) -> list:
-        """Scan incoming notes using ivk, ak, nk."""
-        if end_block_number is None:
-            end_block_number = start_block_number + 1000
-        payload = {
-            "start_block_index": start_block_number,
-            "end_block_index": end_block_number,
-            "shielded_VRC20_contract_address": keys.to_hex_address(self.shielded.contract_address),
-            "ivk": zkey["ivk"],
-            "ak": zkey["ak"],
-            "nk": zkey["nk"],
-        }
-        ret = self._client.provider.make_request("wallet/scanshieldedvrc20notesbyivk", payload)
-        self._client._handle_api_error(ret)
-        return self._fix_notes(ret.get("noteTxs", []))
-
-    def scan_outgoing_notes(
-        self, zkey_or_ovk: Union[dict, str], start_block_number: int, end_block_number: int = None
-    ) -> list:
-        """Scan outgoing notes using ovk."""
-        if end_block_number is None:
-            end_block_number = start_block_number + 1000
-
-        ovk = zkey_or_ovk
-        if isinstance(zkey_or_ovk, (dict,)):
-            ovk = zkey_or_ovk["ovk"]
-
-        payload = {
-            "start_block_index": start_block_number,
-            "end_block_index": end_block_number,
-            "shielded_VRC20_contract_address": keys.to_hex_address(self.shielded.contract_address),
-            "ovk": ovk,
-        }
-        ret = self._client.provider.make_request("wallet/scanshieldedvrc20notesbyovk", payload)
-        self._client._handle_api_error(ret)
-        return ret.get("noteTxs", [])
-
-    # (root, path)
-    def get_path(self, position: int = 0) -> (str, str):
-        root, path = self.shielded.functions.getPath(position)
-        root = root.hex()
-        path = "".join(p.hex() for p in path)
-        return (root, path)
-
-    def is_note_spent(self, zkey: dict, note: dict) -> bool:
-        """Is a note spent."""
-        payload = dict(note)
-        payload["shielded_VRC20_contract_address"] = keys.to_hex_address(self.shielded.contract_address)
-        if "position" not in note:
-            payload["position"] = 0
-        payload["ak"] = zkey["ak"]
-        payload["nk"] = zkey["nk"]
-
-        ret = self._client.provider.make_request("wallet/isshieldedvrc20contractnotespent", payload)
-
-        return ret.get('is_spent', None)
+if __name__ == '__main__':
+    from visionpy import Vision
+    vp = Vision(network='vpioneer')
+    txi = vp.get_transaction_info('31e2cac2866d976c4c532542624ac55f8141f6c516407393d0c94caaca9c2c94')
+    cnr = vp.get_contract('VE2sE7iXbSyESQKMPLav5Q84EXEHZCnaRX')
+    logs = list(cnr.events.Transfer.parse_logs(txi['log']))
+    print(logs)
