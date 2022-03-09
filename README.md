@@ -1,4 +1,6 @@
 # vision-python-sdk (visionpy)
+[![PyPI version](https://badge.fury.io/py/visionpy.svg)](https://badge.fury.io/py/visionpy)
+
 Vision Python Client Library.
 
 ## Features
