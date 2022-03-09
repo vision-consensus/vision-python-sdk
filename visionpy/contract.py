@@ -3,13 +3,10 @@ from Crypto.Hash import keccak
 from typing import Union, Optional, Any, List
 
 from eth_utils import decode_hex
-from eth_abi.codec import ABICodec
-from eth_abi.registry import registry as default_registry
 
 import visionpy
 from visionpy import keys
 from visionpy.abi import vs_abi
-from visionpy.keys.abi import build_default_registry
 
 
 def keccak256(data: bytes) -> bytes:
@@ -205,7 +202,6 @@ class ContractEvent(object):
         self._abi = abi
         self._contract = contract
         self._event_name = event_name
-        self.codec = ABICodec(build_default_registry())
 
     def process_receipt(self, txn_receipt: dict):
         return self.parse_logs(txn_receipt['log'])
@@ -226,13 +222,13 @@ class ContractEvent(object):
 
         topics = log['topics'][1:]
         decoded_topic_data = [
-            self.codec.decode_single(topic_type, decode_hex(topic_data))
+            vs_abi.decode_single(topic_type, decode_hex(topic_data))
             for topic_type, topic_data
             in zip(topic_types, topics)
         ]
 
         data = decode_hex(log['data'])
-        decoded_data = self.codec.decode_abi(data_types, data)
+        decoded_data = vs_abi.decode_abi(data_types, data)
 
         event_args = dict(itertools.chain(
             zip(topic_names, decoded_topic_data),

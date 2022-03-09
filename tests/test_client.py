@@ -178,7 +178,7 @@ async def test_async_client_get_contract():
 def test_client_transfer_vrc10():
     client = Vision(network='vpioneer')
 
-    txn = (
+    txn_ret = (
         client.vs.asset_transfer(
             FROM_ADDR, TO_ADDR, 1000, token_id=1000007
         )
@@ -190,7 +190,7 @@ def test_client_transfer_vrc10():
         .broadcast()
     )
 
-    print(txn)
+    print(txn_ret)
 
 
 @pytest.mark.asyncio
