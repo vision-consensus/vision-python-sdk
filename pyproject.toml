@@ -22,7 +22,7 @@ ecdsa = ">=0.15"
 base58 = "^2.0.0"
 pycryptodome = "^3.9.7"
 eth_abi = "^2.1.1"
-httpx = "^0.22.0"
+httpx = ">=0.16.1"
 
 [tool.poetry.dev-dependencies]
 pytest = "^7"
