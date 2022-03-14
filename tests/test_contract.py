@@ -151,5 +151,19 @@ async def test_async_contract_create():
 
         print(txn_ret)
         result = await txn_ret.wait()
-        print(result)
-        print('Created:', result['contract_address'])
+        print(f"Created: {result['contract_address']}")
+        assert result['receipt']['result'] == 'SUCCESS'
+
+
+def test_contract_decode_function_input():
+    client = Vision(network='vpioneer')
+    txn = client.get_transaction('61df64ad3b50583a8ed139ba4f3e44cbfc38156b4ce06e35b7fadb9466289122')
+    cnr = client.get_contract(txn['raw_data']['contract'][0]['parameter']['value']['contract_address'])
+    decoded_data = cnr.decode_function_input(txn['raw_data']['contract'][0]['parameter']['value']['data'])
+    assert decoded_data == {
+        'amountOutMin': 88396066,
+        'path': ('VQokda3GiAfACiiPrHJed2dk1uRTgFVjYS', 'VVNLcKQBgywFWDCVAB6Hh5JMtSJk3NAy2c'),
+        'to': 'VK6zWsRuXfS682qSaHjqGkFM178XLWdSiT',
+        'deadline': 1647252114
+    }
+
