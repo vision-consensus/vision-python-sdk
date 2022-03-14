@@ -7,9 +7,10 @@ Vision Python Client Library.
 1. Get Block, Transaction, TransactionInfo, Node;
 2. Build and transfer VS, VRC10, VRC20;
 3. Parse event logs of TransactionInfo;
-4. Asyncio support;
-5. Python 3.7.2 and late version required;
-6. Poetry for package management.
+4. Decode contract function inputs;
+5. Asyncio support;
+6. Python 3.7.2 and late version required;
+7. Poetry for package management.
 
 ## How to use
 More examples please check `example` folder.

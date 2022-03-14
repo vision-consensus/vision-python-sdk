@@ -1,12 +1,17 @@
 import itertools
 from Crypto.Hash import keccak
-from typing import Union, Optional, Any, List
+from typing import Union, Optional, Any, List, cast, Dict
 
-from eth_utils import decode_hex
+from eth_typing import HexStr
+from eth_utils import decode_hex, encode_hex, function_abi_to_4byte_selector, hexstr_if_str, to_bytes, remove_0x_prefix, \
+    add_0x_prefix
+from eth_utils.abi import collapse_if_tuple
+from hexbytes import HexBytes
 
 import visionpy
 from visionpy import keys
 from visionpy.abi import vs_abi
+from visionpy.keys.encoding import get_function_by_selector, get_abi_input_names, get_abi_input_types
 
 
 def keccak256(data: bytes) -> bytes:
@@ -170,6 +175,18 @@ class Contract(object):
                 return self._events
             raise ValueError("can not call a contract without ABI")
         return self._events
+
+    def decode_function_input(self, data: HexStr) -> dict:
+        # type ignored b/c expects data arg to be HexBytes
+        data = HexBytes(data)  # type: ignore
+        selector, params = data[:4], data[4:]
+        func = get_function_by_selector(self.abi, selector)
+
+        names = get_abi_input_names(func)
+        types = get_abi_input_types(func)
+
+        decoded = vs_abi.decode_abi(types, cast(HexBytes, params))
+        return dict(zip(names, decoded))
 
 
 class ContractEvents(object):
