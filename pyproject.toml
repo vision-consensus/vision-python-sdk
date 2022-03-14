@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "visionpy"
-version = "0.0.3"
+version = "0.0.4"
 description = "Vision Python client library"
 authors = ["mio <liurusi.101@gmail.com>"]
 license = "MIT"
